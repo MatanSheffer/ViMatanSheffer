@@ -1,5 +1,5 @@
 {
-  "model_type": "XGBoost",
+  "model_type": "XGBoost (two-stage)",
   "feature_config": {
     "dedupe_claims_full_row": true,
     "dedupe_web_visits_full_row": true,
@@ -41,13 +41,23 @@
     "min_days_since_activity",
     "combined_trend"
   ],
-  "best_params": {
-    "max_depth": 3,
-    "learning_rate": 0.05,
-    "n_estimators": 100
+  "stage1_churn_model": {
+    "best_params": {
+      "max_depth": 3,
+      "learning_rate": 0.05,
+      "n_estimators": 100
+    },
+    "scale_pos_weight": 3.9480455220188024,
+    "test_auc_roc": 0.6658346326356792,
+    "test_auc_prc": 0.3293156413316737,
+    "optimal_threshold": 0.45796293020248413
   },
-  "scale_pos_weight": 3.9480455220188024,
-  "test_auc_roc": 0.6658346326356792,
-  "test_auc_prc": 0.3293156413316737,
-  "optimal_threshold": 0.45796293020248413
+  "stage2_lost_cause_model": {
+    "trained": true
+  },
+  "outreach_recommendation": {
+    "method": "elbow_detection",
+    "optimal_n": 3500,
+    "lift_at_n": 1.5112631879098946
+  }
 }

@@ -1,233 +1,254 @@
-# WellCo Member Churn Prediction
+# WellCo Churn Prediction & Outreach Optimization
 
-A machine learning solution to identify members at risk of churning for targeted outreach intervention.
-
-## Executive Summary
-
-WellCo is experiencing increased member churn. This solution provides:
-1. **A ranked list of members** prioritized by churn risk for outreach
-2. **Recommended outreach size (n=2,000)** based on cost-efficiency analysis
-3. **1.77x lift over random** — contacting the top 20% captures ~35% of churners
-
-| Metric | Random Baseline | Our Model | Improvement |
-|--------|-----------------|-----------|-------------|
-| **ROC-AUC** | 0.489 | **0.666** | +36% |
-| **AUC-PRC** | 0.200 | **0.329** | +65% |
-| **Churn Recall @ optimal threshold** | 48% | **68%** | +20 pts |
+A machine learning solution to predict member churn and prioritize outreach for WellCo, an employer-sponsored healthcare ecosystem. This project implements a **two-stage model approach** that not only predicts who will churn, but also identifies which at-risk members are most likely to be saved by intervention.
 
 ---
 
-## Quick Start
+## Table of Contents
 
-```bash
-# Clone and setup
-git clone <repo-url>
-cd ViMatanSheffer
+- [Problem Statement](#problem-statement)
+- [Solution Approach](#solution-approach)
+- [Project Structure](#project-structure)
+- [Setup & Installation](#setup--installation)
+- [Running the Pipeline](#running-the-pipeline)
+- [Model Performance](#model-performance)
+- [Key Deliverables](#key-deliverables)
+- [Feature Engineering](#feature-engineering)
+- [Outreach Size Selection](#outreach-size-selection)
 
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
+---
 
-# Install dependencies
-pip install -r requirements.txt
+## Problem Statement
 
-# Train model and generate predictions
-python -m src.train_eval
+WellCo is experiencing increased member churn and seeks to reduce it through targeted outreach. The challenge involves:
 
-# View evaluation notebook
-jupyter notebook notebooks/evaluation.ipynb
+1. **Predicting churn risk** — Identify members likely to leave
+2. **Prioritizing outreach** — Rank members for contact, maximizing impact per outreach dollar
+3. **Determining optimal N** — Find the right number of members to contact given marginal outreach costs
+
+---
+
+## Solution Approach
+
+### Two-Stage Model Architecture
+
+Rather than simply ranking by churn probability, this solution implements a **two-stage approach** that accounts for outreach effectiveness:
+
+| Stage | Model | Purpose |
+|-------|-------|---------|
+| **Stage 1** | Churn Risk Model | Predicts P(churn) for all members using behavioral and claims features |
+| **Stage 2** | Lost-Cause Model | Predicts P(churn \| outreach=1) — trained only on members who received outreach |
+
+**Final Score Formula:**
+```
+final_score = proba_churn × (1 - penalty_weight × proba_lost_cause)
 ```
 
----
+This prioritizes members who are:
+- **High churn risk** (need intervention)
+- **Low lost-cause probability** (likely to respond to outreach)
 
-## Deliverables
+### Why This Matters
 
-| Deliverable | Location |
-|-------------|----------|
-| **Ranked member list** | `artifacts/outreach_ranking.csv` |
-| **Recommended top-n list** | `artifacts/outreach_top_n.csv` (n=2,000) |
-| **Trained model** | `artifacts/baseline_model.joblib` |
-| **Model metadata** | `artifacts/baseline_model_meta.json` |
-| **Evaluation notebook** | `notebooks/evaluation.ipynb` |
-| **Executive presentation** | `presentation/` |
-
----
-
-## Approach
-
-### Data Overview
-
-Four data sources covering a 14-day observation window (July 1-14, 2025):
-
-| Source | Description | Key Fields |
-|--------|-------------|------------|
-| `app_usage.csv` | Mobile app sessions | member_id, timestamp |
-| `web_visits.csv` | Website visits | member_id, url, title, description, timestamp |
-| `claims.csv` | Medical claims | member_id, icd_code, diagnosis_date |
-| `churn_labels.csv` | Target & metadata | member_id, churn, signup_date, outreach |
-
-**Client focus** (per `wellco_client_brief.txt`): Cardiometabolic conditions — E11.9 (Type 2 Diabetes), I10 (Hypertension), Z71.3 (Dietary Counseling).
-
-### Feature Engineering
-
-23 features engineered across four categories:
-
-| Category | Features | Rationale |
-|----------|----------|-----------|
-| **Tenure** | `tenure_days_at_obs_end` | Longer tenure → established relationship |
-| **Engagement Intensity** | `app_sessions_per_day`, `total_engagement_per_tenure` | Activity level relative to membership length |
-| **Recency Signals** | `days_since_last_app`, `days_since_last_web`, `min_days_since_activity` | Recent disengagement predicts churn |
-| **Engagement Trends** | `app_engagement_trend`, `web_engagement_trend`, `combined_trend` | Declining engagement (early vs late window) |
-| **Content Patterns** | `web_health_content_ratio`, `web_topic_engagement_ratio` | Health-focused browsing indicates commitment |
-| **Clinical Signals** | `n_focus_code_claims` | Claims for focus ICD codes (E11.9, I10, Z71.3) |
-| **Cross-channel** | `digital_to_claims_ratio`, `app_preference_ratio` | Channel engagement balance |
-
-**Feature selection rationale**: Features were selected based on (1) domain relevance to healthcare engagement, (2) predictive power measured by feature importance (Gain > 0.01), and (3) avoiding data leakage (no post-observation features).
-
-### Model
-
-- **Algorithm**: XGBoost with cross-validation hyperparameter tuning
-- **Class imbalance handling**: `scale_pos_weight` parameter (~4:1 ratio)
-- **Best hyperparameters**: `max_depth=3`, `learning_rate=0.05`, `n_estimators=100`
-- **Optimal threshold**: 0.458 (maximizes F1 score)
-
-### Model Evaluation
-
-**Why these metrics?**
-
-| Metric | Value | Interpretation |
-|--------|-------|----------------|
-| **ROC-AUC** | 0.666 | Measures ranking quality — how well the model separates churners from non-churners |
-| **AUC-PRC** | 0.329 | Critical for imbalanced data (20% churn rate) — 1.65x above random baseline |
-| **Precision@K** | 47% @ top 250 | Of the top-ranked members, what fraction are actual churners |
-| **Lift** | 2.24x @ top 5% | How much better than random targeting |
-
-**Precision-Recall tradeoff**: At optimal threshold (0.458), the model achieves 68% recall (captures 2/3 of churners) with 28% precision.
-
----
-
-## Outreach Data: Treatment Effect Consideration
-
-### The Challenge
-
-The dataset includes an `outreach` flag indicating members who received intervention between observation and churn measurement. This creates a methodological challenge:
-
-```
-Observation Window → [Outreach Event] → Churn Measurement
-    (features)         (treatment)         (outcome)
-```
-
-### Our Approach
-
-1. **Excluded from prediction features**: The outreach flag cannot be used for scoring new members (it's not known at prediction time)
-
-2. **Observed correlation**: Members who received outreach show lower churn rates, but this could be:
-   - **Treatment effect**: Outreach actually reduces churn
-   - **Selection bias**: High-risk members (identified by other signals) were targeted for outreach
-
-3. **Implication**: The lift analysis in `notebooks/evaluation.ipynb` shows that in top risk deciles, outreach recipients have higher churn than non-recipients — suggesting selection bias (they were already high-risk when selected).
-
-4. **Recommendation**: A/B testing is required to isolate the true treatment effect before scaling outreach.
-
----
-
-## Selecting Outreach Size (n)
-
-### Methodology
-
-We use lift analysis to determine the optimal outreach size:
-
-| Outreach % | Members (n) | Churners Captured | Lift vs Random |
-|------------|-------------|-------------------|----------------|
-| 5% | 500 | 224 (11%) | **2.24x** |
-| 10% | 1,000 | 395 (20%) | **1.97x** |
-| 15% | 1,500 | 505 (25%) | **1.68x** |
-| 20% | 2,000 | 709 (35%) | **1.77x** |
-| 30% | 3,000 | 957 (48%) | **1.59x** |
-
-### Recommendation: n = 2,000 (Top 20%)
-
-**Rationale:**
-
-1. **Balanced approach**: 20% sits in the middle of the efficient range (10-30%), balancing coverage and precision
-2. **Strong lift**: 1.77x lift means we're still nearly twice as effective as random targeting
-3. **Meaningful coverage**: Captures 35% of all churners — over one-third of at-risk members
-4. **Diminishing returns threshold**: Beyond 30%, lift drops to <1.6x, making additional outreach less cost-effective
-
-**Adjustments based on cost**:
-- If outreach is expensive → reduce to n=1,000 (top 10%, 2x lift)
-- If outreach is cheap → expand to n=3,000 (top 30%, 1.59x lift)
-
----
-
-## Data Limitations
-
-The available data has inherent constraints on achievable accuracy:
-
-| Data Source | Limitation | Impact |
-|-------------|------------|--------|
-| App usage | Only session timestamps, no in-app behavior | Cannot measure engagement depth |
-| Web visits | URL/title only, no time-on-page or scroll depth | Limited engagement quality signal |
-| Claims | ICD codes and dates only | Minimal clinical context |
-
-**Maximum feature correlations with churn**: ~0.15 (weak individual signals)
-
-**Estimated AUC ceiling**: 0.65-0.70 with current data. Further improvement would require richer data sources (customer support interactions, billing issues, NPS scores, detailed app behavior).
+A naive approach would contact the highest-risk members first. But some high-risk members will churn regardless of intervention ("lost causes"). By modeling who responds to outreach, we can **focus resources on saveable members** and maximize ROI.
 
 ---
 
 ## Project Structure
 
 ```
-├── README.md                           # This file
-├── requirements.txt                    # Python dependencies
+ViMatanSheffer/
+├── artifacts/                    # Model outputs and predictions
+│   ├── baseline_model.joblib     # Trained churn model pipeline
+│   ├── lost_cause_model.joblib   # Trained lost-cause model
+│   ├── baseline_model_meta.json  # Model metadata and parameters
+│   ├── outreach_ranking.csv      # Full member ranking
+│   ├── outreach_top_n.csv        # Top N members for outreach
+│   └── test_predictions.csv      # Complete test set predictions
 ├── data/
-│   ├── train/                          # Training data
-│   ├── test/                           # Test data (for final evaluation)
-│   ├── wellco_client_brief.txt         # Client context
-│   ├── auc_baseline_test.txt           # Baseline metrics
-│   └── schema_*.md                     # Data schemas
+│   ├── train/                    # Training data
+│   ├── test/                     # Test data (for evaluation)
+│   └── *.md, *.txt               # Schemas and client brief
 ├── notebooks/
-│   ├── eda.ipynb                       # Exploratory data analysis
-│   └── evaluation.ipynb                # Model evaluation & business analysis
+│   ├── eda.ipynb                 # Exploratory data analysis
+│   └── evaluation.ipynb          # Model evaluation and lift analysis
 ├── src/
-│   ├── config.py                       # Path configuration
-│   ├── data_io.py                      # Data loading utilities
-│   ├── features.py                     # Feature engineering
-│   └── train_eval.py                   # Model training & evaluation
-├── artifacts/
-│   ├── baseline_model.joblib           # Trained XGBoost model
-│   ├── baseline_model_meta.json        # Model metadata & hyperparameters
-│   ├── test_predictions.csv            # Full test set predictions
-│   ├── outreach_ranking.csv            # Complete ranked member list
-│   └── outreach_top_n.csv              # Recommended top 2,000 members
-└── presentation/                       # Executive slides
+│   ├── config.py                 # Path configuration
+│   ├── data_io.py                # Data loading utilities
+│   ├── features.py               # Feature engineering
+│   └── train_eval.py             # Training pipeline
+├── requirements.txt
+└── README.md
 ```
 
 ---
 
-## Reproducing Results
+## Setup & Installation
+
+### Prerequisites
+
+- Python 3.10+ recommended
+- pip package manager
+
+### Installation Steps
 
 ```bash
-# 1. Train model (generates artifacts/)
+# 1. Clone the repository
+git clone <repository-url>
+cd ViMatanSheffer
+
+# 2. Create and activate a virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# 3. Install dependencies
+pip install -r requirements.txt
+```
+
+### Dependencies
+
+- `pandas>=2.0` — Data manipulation
+- `numpy>=1.24` — Numerical computing
+- `scikit-learn>=1.3` — ML preprocessing and evaluation
+- `xgboost>=2.0` — Gradient boosting model
+- `matplotlib>=3.7` & `seaborn>=0.12` — Visualization
+- `joblib>=1.3` — Model serialization
+
+---
+
+## Running the Pipeline
+
+### Training & Evaluation
+
+Run the full training pipeline from the project root:
+
+```bash
 python -m src.train_eval
-
-# 2. Run evaluation notebook
-jupyter nbconvert --execute --inplace notebooks/evaluation.ipynb
-
-# 3. Verify metrics
-cat artifacts/baseline_model_meta.json | grep -E "auc|threshold"
 ```
 
-Expected output:
+This will:
+1. Load training and test data
+2. Engineer features from web visits, app usage, and claims
+3. Train Stage 1 (churn) and Stage 2 (lost-cause) models
+4. Perform hyperparameter search via cross-validation
+5. Generate predictions and rankings
+6. Save all artifacts to `artifacts/`
+
+### Exploring the Notebooks
+
+Launch Jupyter to explore the analysis:
+
+```bash
+jupyter notebook notebooks/
 ```
-"test_auc_roc": 0.666
-"test_auc_prc": 0.329
-"optimal_threshold": 0.458
-```
+
+- **`eda.ipynb`** — Exploratory data analysis and feature insights
+- **`evaluation.ipynb`** — Model performance, lift curves, and outreach recommendations
+
+---
+
+## Model Performance
+
+### Comparison to Baseline
+
+| Metric | Baseline (Random) | Our Model |
+|--------|-------------------|-----------|
+| ROC-AUC | 0.489 | **0.666** |
+| AUC-PRC | ~0.20 | **0.329** |
+
+### Outreach Effectiveness
+
+| Metric | Value |
+|--------|-------|
+| Optimal N | 3,500 members |
+| Lift at N | **1.51×** |
+| Churners captured | ~52% of all churners |
+
+At the recommended outreach size (N=3,500), we capture 1.5× more churners per contact than a random baseline.
+
+---
+
+## Key Deliverables
+
+### 1. Outreach List (`artifacts/outreach_top_n.csv`)
+
+A prioritized list of top N members for outreach:
+
+| Column | Description |
+|--------|-------------|
+| `member_id` | Unique member identifier |
+| `churn_probability` | Combined priority score (0-1) |
+| `rank` | Outreach priority (1 = highest) |
+
+### 2. Full Ranking (`artifacts/outreach_ranking.csv`)
+
+Complete ranking of all members for flexible outreach sizing.
+
+### 3. Trained Models
+
+- `baseline_model.joblib` — Full preprocessing + churn model pipeline
+- `lost_cause_model.joblib` — Stage 2 lost-cause classifier
+
+---
+
+## Feature Engineering
+
+Features are engineered from three data sources, focusing on **behavioral engagement patterns** that signal churn intent:
+
+### Engagement Recency & Frequency
+- `days_since_last_app` / `days_since_last_web` — Recent disengagement signals
+- `app_sessions_per_day` — Usage intensity
+- `min_days_since_activity` — Most recent touchpoint across all channels
+
+### Temporal Patterns
+- `app_engagement_trend` / `web_engagement_trend` — Early vs. late window comparison
+- `app_mean_gap_hours` / `web_mean_gap_hours` — Session regularity
+- `session_span_days` — Total active duration
+
+### Content Engagement (Health Topics)
+- `web_health_content_ratio` — Proportion of health-related page visits
+- `web_topic_engagement_ratio` — Engagement with specific wellness topics (nutrition, movement, sleep, stress, diabetes, blood pressure)
+- `web_health_ratio_delta` — Change in health content engagement over time
+
+### Clinical Indicators
+- `n_focus_code_claims` — Claims for priority conditions (E11.9, I10, Z71.3)
+- `tenure_days_at_obs_end` — Member tenure
+
+### Cross-Source Interactions
+- `digital_to_claims_ratio` — Digital engagement relative to healthcare utilization
+- `app_preference_ratio` — Mobile vs. web channel preference
+- `combined_trend` — Aggregated engagement trajectory
+
+---
+
+## Outreach Size Selection
+
+### Method: Elbow Detection
+
+We determine optimal N by finding the **elbow point** in the lift curve — where diminishing returns set in:
+
+1. Compute cumulative lift (churn rate in top K / baseline rate) for varying K
+2. Find the point of maximum curvature (greatest deviation from a straight line)
+3. This balances **capturing more churners** vs. **diminishing marginal value**
+
+### Result
+
+The elbow detection algorithm recommends **N = 3,500** members, where:
+- Lift remains strong (1.51×)
+- Additional contacts yield progressively less incremental value
+- ~35% of the member base is targeted for intervention
+
+### Incorporating Outreach Data
+
+The training data includes an `outreach` flag indicating members who were previously contacted. Rather than ignoring this signal:
+
+1. **Stage 2 model** is trained exclusively on outreach=1 members to learn who churns despite intervention
+2. This enables us to **deprioritize lost causes** and focus on responsive members
+3. The combined score reflects both churn risk and outreach responsiveness
 
 ---
 
 ## Author
 
 Matan Sheffer
+
